@@ -1,9 +1,22 @@
 import os
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 import psycopg2
 from psycopg2.extras import RealDictCursor
 
 app = FastAPI()
+
+origins = [
+    "https://tischkicker-admin.onrender.com",
+]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,   # Domains, die zugreifen dürfen
+    allow_credentials=True,
+    allow_methods=["*"],     # GET, POST, etc.
+    allow_headers=["*"],
+)
 
 # --- Funktion: DB-Verbindung öffnen ---
 def get_db_connection():
