@@ -8,6 +8,9 @@ from typing import List, Optional
 
 app = FastAPI()
 
+class PlayerCreate(BaseModel):
+    name: str
+
 origins = [
     "https://tischkicker-admin.onrender.com",
 ]
@@ -59,33 +62,31 @@ def get_players():
 # --- Endpoint: Spieler hinzufügen ---
 @app.post("/api/players")
 def add_player(player: PlayerCreate):
+    name = player.name.strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="Spielername darf nicht leer sein!")
+
     conn = get_db_connection()
     with conn.cursor() as cur:
-        # Spieler einfügen
         cur.execute(
             "INSERT INTO players (name, elo, wins, losses) VALUES (%s, 1000, 0, 0) RETURNING id;",
-            (player.name,)
+            (name,)
         )
         player_id = cur.fetchone()['id']
 
-        # Rang für neuen Spieler setzen
+        # Rang automatisch setzen
         cur.execute("""
             UPDATE players p
             SET rank_id = r.id
             FROM ranks r
             WHERE p.id = %s
             AND r.min_elo = (
-                SELECT MAX(min_elo)
-                FROM ranks
-                WHERE min_elo <= p.elo
+                SELECT MAX(min_elo) FROM ranks WHERE min_elo <= p.elo
             );
         """, (player_id,))
-
-        # Änderungen speichern
         conn.commit()
-
     conn.close()
-    return {"id": player_id, "message": f"Spieler '{player.name}' erfolgreich hinzugefügt!"}
+    return {"id": player_id, "message": f"Spieler '{name}' erfolgreich hinzugefügt!"}
 
 
 # --- Endpoint: Rangliste ---
