@@ -44,7 +44,7 @@ class MatchCreate(BaseModel):
     team2_ids: List[int]
     score_team1: int
     score_team2: int
-    mode: Optional[str] = "solo"
+    mode: Optional[str] = None
 
 # --- Spieler abrufen ---
 @app.get("/api/players")
