@@ -147,3 +147,12 @@ def add_match(match: MatchCreate):
     finally:
         if 'conn' in locals():
             conn.close()
+
+
+# debug
+@app.post("/api/debug-match")
+def debug_match(payload: dict):
+    return {
+        "received": payload,
+        "status": "OK"
+    }
