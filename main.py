@@ -142,23 +142,24 @@ def add_match(match: MatchCreate):
 
             match_id = cur.fetchone()["id"]
 
-            # --- Spieler zuordnen ---
+            # Team 1
             for pid in match.team1_ids:
                 cur.execute("""
                     INSERT INTO match_players (match_id, player_id, team)
                     VALUES (%s, %s, 1);
-                """, (match_id, pid))
-
+                """, (str(match_id), str(pid)))
+            
+            # Team 2
             for pid in match.team2_ids:
                 cur.execute("""
                     INSERT INTO match_players (match_id, player_id, team)
                     VALUES (%s, %s, 2);
-                """, (match_id, pid))
-
-            # --- Match verarbeiten (Elo, Wins, Losses) ---
-            cur.execute("SELECT process_match(%s);", (match_id,))
-
-            # --- Ränge NUR für beteiligte Spieler aktualisieren ---
+                """, (str(match_id), str(pid)))
+            
+            # Match verarbeiten
+            cur.execute("SELECT process_match(%s);", (str(match_id),))
+            
+            # Ränge aktualisieren
             cur.execute("""
                 UPDATE players p
                 SET rank_id = r.id
@@ -173,7 +174,7 @@ def add_match(match: MatchCreate):
                     FROM ranks
                     WHERE min_elo <= p.elo
                 );
-            """, (match_id,))
+            """, (str(match_id),))
 
             # --- Match als verarbeitet markieren ---
             cur.execute("""
