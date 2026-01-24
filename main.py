@@ -124,6 +124,11 @@ def add_match(match: MatchCreate):
             detail="Ein Spieler kann nicht in beiden Teams sein"
         )
 
+    # --- Match-Modus automatisch bestimmen ---
+    mode = "solo"
+    if len(match.team1_ids) > 1 or len(match.team2_ids) > 1:
+        mode = "duo"
+
     conn = get_db_connection()
 
     try:
@@ -135,7 +140,7 @@ def add_match(match: MatchCreate):
                 VALUES (%s, %s, %s, FALSE)
                 RETURNING id;
             """, (
-                match.mode,
+                mode,
                 match.score_team1,
                 match.score_team2
             ))
