@@ -109,29 +109,30 @@ def add_match(match: MatchCreate):
     conn = get_db_connection()
     try:
         with conn.cursor() as cur:
-            # Match speichern
+            # Neues Match einfügen
             cur.execute(
-                "INSERT INTO matches (mode, score_team1, score_team2, processed) VALUES (%s, %s, %s, FALSE) RETURNING id;",
+                "INSERT INTO matches (mode, score_team1, score_team2, processed) VALUES (%s,%s,%s,FALSE) RETURNING id;",
                 (match.mode, match.score_team1, match.score_team2)
             )
             match_id = cur.fetchone()['id']
 
-            # Team1
+            # Team 1 Spieler einfügen
             for pid in match.team1_ids:
-                if pid is not None:
+                if pid:  # nur IDs > 0
                     cur.execute(
-                        "INSERT INTO match_players (match_id, player_id, team) VALUES (%s, %s, 1);",
-                        (match_id, pid)
-                    )
-            # Team2
-            for pid in match.team2_ids:
-                if pid is not None:
-                    cur.execute(
-                        "INSERT INTO match_players (match_id, player_id, team) VALUES (%s, %s, 2);",
+                        "INSERT INTO match_players (match_id, player_id, team) VALUES (%s,%s,1);",
                         (match_id, pid)
                     )
 
-            # Elo & Ränge aktualisieren
+            # Team 2 Spieler einfügen
+            for pid in match.team2_ids:
+                if pid:
+                    cur.execute(
+                        "INSERT INTO match_players (match_id, player_id, team) VALUES (%s,%s,2);",
+                        (match_id, pid)
+                    )
+
+            # Match verarbeiten (Elo & Ränge)
             cur.execute("SELECT process_match(%s);", (match_id,))
             # Spieler-Ränge aktualisieren
             cur.execute("""
@@ -139,11 +140,12 @@ def add_match(match: MatchCreate):
                 SET rank_id = r.id
                 FROM ranks r
                 WHERE r.min_elo = (
-                    SELECT MAX(min_elo) FROM ranks WHERE min_elo <= p.elo
+                    SELECT MAX(min_elo)
+                    FROM ranks
+                    WHERE min_elo <= p.elo
                 );
             """)
             conn.commit()
-
         return {"match_id": match_id, "message": "Match erfolgreich eingetragen"}
     finally:
         conn.close()
