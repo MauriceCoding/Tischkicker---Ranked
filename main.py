@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 import psycopg2
 import os
 import math
+import traceback
 
 app = FastAPI()
 
