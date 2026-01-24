@@ -61,11 +61,15 @@ def get_players():
 def add_player(player: PlayerCreate):
     conn = get_db_connection()
     with conn.cursor() as cur:
-        cur.execute("INSERT INTO players (name, elo, wins, losses) VALUES (%s, 1000, 0, 0) RETURNING id;", (player.name,))
+        # Spieler einfügen
+        cur.execute(
+            "INSERT INTO players (name, elo, wins, losses) VALUES (%s, 1000, 0, 0) RETURNING id;",
+            (player.name,)
+        )
         player_id = cur.fetchone()['id']
-        conn.commit()
 
-       cur.execute("""
+        # Rang für neuen Spieler setzen
+        cur.execute("""
             UPDATE players p
             SET rank_id = r.id
             FROM ranks r
@@ -76,8 +80,13 @@ def add_player(player: PlayerCreate):
                 WHERE min_elo <= p.elo
             );
         """, (player_id,))
+
+        # Änderungen speichern
+        conn.commit()
+
     conn.close()
     return {"id": player_id, "message": f"Spieler '{player.name}' erfolgreich hinzugefügt!"}
+
 
 # --- Endpoint: Rangliste ---
 @app.get("/api/leaderboard")
