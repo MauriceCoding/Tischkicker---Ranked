@@ -23,7 +23,13 @@ app.add_middleware(
 DATABASE_URL = os.environ["DATABASE_URL"]
 
 def get_db_connection():
-    return psycopg2.connect(DATABASE_URL)
+    dsn = os.environ.get("DATABASE_URL")
+    if not dsn:
+        raise RuntimeError("DATABASE_URL ist nicht gesetzt")
+    # psycopg2.connect interpretiert DSN jetzt strikt, daher sicherstellen, dass es 'postgresql://' enthält
+    if dsn.startswith("psql://"):
+        dsn = "postgresql://" + dsn[6:]
+    return psycopg2.connect(dsn)
 
 # -----------------------
 # RANG LOGIK
