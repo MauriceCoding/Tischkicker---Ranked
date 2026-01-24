@@ -106,25 +106,22 @@ def add_player(player: PlayerCreate):
 # --- Match eintragen ---
 @app.post("/api/matches")
 def add_match(match: MatchCreate):
-    conn = get_db_connection()
     try:
+        conn = get_db_connection()
         with conn.cursor() as cur:
-            # Neues Match einfügen
+            # Match einfügen + Spieler eintragen
             cur.execute(
                 "INSERT INTO matches (mode, score_team1, score_team2, processed) VALUES (%s,%s,%s,FALSE) RETURNING id;",
                 (match.mode, match.score_team1, match.score_team2)
             )
             match_id = cur.fetchone()['id']
 
-            # Team 1 Spieler einfügen
             for pid in match.team1_ids:
-                if pid:  # nur IDs > 0
+                if pid:
                     cur.execute(
                         "INSERT INTO match_players (match_id, player_id, team) VALUES (%s,%s,1);",
                         (match_id, pid)
                     )
-
-            # Team 2 Spieler einfügen
             for pid in match.team2_ids:
                 if pid:
                     cur.execute(
@@ -132,9 +129,7 @@ def add_match(match: MatchCreate):
                         (match_id, pid)
                     )
 
-            # Match verarbeiten (Elo & Ränge)
             cur.execute("SELECT process_match(%s);", (match_id,))
-            # Spieler-Ränge aktualisieren
             cur.execute("""
                 UPDATE players p
                 SET rank_id = r.id
@@ -147,5 +142,8 @@ def add_match(match: MatchCreate):
             """)
             conn.commit()
         return {"match_id": match_id, "message": "Match erfolgreich eingetragen"}
+    except Exception as e:
+        return {"error": str(e)}
     finally:
-        conn.close()
+        if 'conn' in locals():
+            conn.close()
