@@ -14,7 +14,7 @@ origins = [
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins,   # Domains, die zugreifen dürfen
+    allow_origins=["https://tischkicker-admin.onrender.com"],   # Domains, die zugreifen dürfen
     allow_credentials=True,
     allow_methods=["*"],     # GET, POST, etc.
     allow_headers=["*"],
@@ -64,6 +64,18 @@ def add_player(player: PlayerCreate):
         cur.execute("INSERT INTO players (name, elo, wins, losses) VALUES (%s, 1000, 0, 0) RETURNING id;", (player.name,))
         player_id = cur.fetchone()['id']
         conn.commit()
+
+       cur.execute("""
+            UPDATE players p
+            SET rank_id = r.id
+            FROM ranks r
+            WHERE p.id = %s
+            AND r.min_elo = (
+                SELECT MAX(min_elo)
+                FROM ranks
+                WHERE min_elo <= p.elo
+            );
+        """, (player_id,))
     conn.close()
     return {"id": player_id, "message": f"Spieler '{player.name}' erfolgreich hinzugefügt!"}
 
