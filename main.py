@@ -8,37 +8,34 @@ from typing import List, Optional
 
 app = FastAPI()
 
-class PlayerCreate(BaseModel):
-    name: str
-
+# --- CORS Setup ---
 origins = [
-    "https://tischkicker-admin.onrender.com",
+    "https://tischkicker-admin.onrender.com",  # deine Admin-Seite
 ]
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins,  # <- explizit
-    allow_credentials=True,  # <- ok
+    allow_origins=origins,
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# --- Funktion: DB-Verbindung öffnen ---
+# --- DB-Verbindung ---
 def get_db_connection():
     dsn = os.environ.get("DATABASE_URL", "")
     if not dsn:
         raise RuntimeError("DATABASE_URL ist nicht gesetzt!")
 
-    # Zeilenumbrüche/Leerzeichen entfernen
     dsn = dsn.strip()
 
-    # psql:// zu postgresql:// konvertieren, falls Render das liefert
+    # psql:// -> postgresql:// für psycopg2
     if dsn.startswith("psql://"):
         dsn = "postgresql://" + dsn[len("psql://"):]
 
     return psycopg2.connect(dsn, cursor_factory=RealDictCursor)
 
-
+# --- Pydantic Modelle ---
 class PlayerCreate(BaseModel):
     name: str
 
@@ -49,103 +46,104 @@ class MatchCreate(BaseModel):
     score_team2: int
     mode: Optional[str] = "solo"
 
-# --- Endpoint: Spieler abrufen ---
+# --- Spieler abrufen ---
 @app.get("/api/players")
 def get_players():
     conn = get_db_connection()
-    with conn.cursor() as cur:
-        cur.execute("SELECT id, name, elo, wins, losses FROM players ORDER BY name;")
-        players = cur.fetchall()
-    conn.close()
-    return players
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT id, name, elo, wins, losses FROM players ORDER BY name;")
+            players = cur.fetchall()
+        return players
+    finally:
+        conn.close()
 
-# --- Endpoint: Spieler hinzufügen ---
-@app.post("/api/players")
-def add_player(player: PlayerCreate):
-    name = player.name.strip()
-    if not name:
-        raise HTTPException(status_code=400, detail="Spielername darf nicht leer sein!")
-
-    conn = get_db_connection()
-    with conn.cursor() as cur:
-        cur.execute(
-            "INSERT INTO players (name, elo, wins, losses) VALUES (%s, 1000, 0, 0) RETURNING id;",
-            (name,)
-        )
-        player_id = cur.fetchone()['id']
-
-        # Rang automatisch setzen
-        cur.execute("""
-            UPDATE players p
-            SET rank_id = r.id
-            FROM ranks r
-            WHERE p.id = %s
-            AND r.min_elo = (
-                SELECT MAX(min_elo) FROM ranks WHERE min_elo <= p.elo
-            );
-        """, (player_id,))
-        conn.commit()
-    conn.close()
-    return {"id": player_id, "message": f"Spieler '{name}' erfolgreich hinzugefügt!"}
-
-
-# --- Endpoint: Rangliste ---
+# --- Rangliste abrufen ---
 @app.get("/api/leaderboard")
 def get_leaderboard():
     conn = get_db_connection()
-    with conn.cursor() as cur:
-        cur.execute("""
-            SELECT p.id, p.name, p.elo, p.wins, p.losses, r.name AS rank_name, r.icon_url
-            FROM players p
-            LEFT JOIN ranks r ON p.rank_id = r.id
-            ORDER BY p.elo DESC
-        """)
-        leaderboard = cur.fetchall()
-    conn.close()
-    return leaderboard
+    try:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT p.id, p.name, p.elo, p.wins, p.losses, r.name AS rank_name, r.icon_url
+                FROM players p
+                LEFT JOIN ranks r ON p.rank_id = r.id
+                ORDER BY p.elo DESC
+            """)
+            leaderboard = cur.fetchall()
+        return leaderboard
+    finally:
+        conn.close()
 
-# --- Endpoint: Match eintragen ---
+# --- Spieler hinzufügen ---
+@app.post("/api/players")
+def add_player(player: PlayerCreate):
+    if not player.name.strip():
+        raise HTTPException(status_code=400, detail="Spielername darf nicht leer sein!")
+    conn = get_db_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO players (name, elo, wins, losses) VALUES (%s, 1000, 0, 0) RETURNING id;",
+                (player.name.strip(),)
+            )
+            player_id = cur.fetchone()['id']
+            # Rang direkt nach Spielererstellung setzen
+            cur.execute("""
+                UPDATE players p
+                SET rank_id = r.id
+                FROM ranks r
+                WHERE p.id = %s
+                AND r.min_elo = (
+                    SELECT MAX(min_elo) FROM ranks WHERE min_elo <= p.elo
+                );
+            """, (player_id,))
+            conn.commit()
+        return {"id": player_id, "message": f"Spieler '{player.name.strip()}' erfolgreich hinzugefügt!"}
+    finally:
+        conn.close()
+
+# --- Match eintragen ---
 @app.post("/api/matches")
 def add_match(match: MatchCreate):
     conn = get_db_connection()
-    with conn.cursor() as cur:
-        # Neues Match einfügen
-        cur.execute(
-            "INSERT INTO matches (mode, score_team1, score_team2, processed) VALUES (%s,%s,%s,FALSE) RETURNING id;",
-            (match.mode, match.score_team1, match.score_team2)
-        )
-        match_id = cur.fetchone()['id']
+    try:
+        with conn.cursor() as cur:
+            # Match speichern
+            cur.execute(
+                "INSERT INTO matches (mode, score_team1, score_team2, processed) VALUES (%s, %s, %s, FALSE) RETURNING id;",
+                (match.mode, match.score_team1, match.score_team2)
+            )
+            match_id = cur.fetchone()['id']
 
-        # Spieler zuordnen (Team 1)
-        for pid in match.team1_ids:
-            if pid:
-                cur.execute(
-                    "INSERT INTO match_players (match_id, player_id, team) VALUES (%s,%s,1);",
-                    (match_id, pid)
-                )
-        # Spieler zuordnen (Team 2)
-        for pid in match.team2_ids:
-            if pid:
-                cur.execute(
-                    "INSERT INTO match_players (match_id, player_id, team) VALUES (%s,%s,2);",
-                    (match_id, pid)
-                )
+            # Team1
+            for pid in match.team1_ids:
+                if pid is not None:
+                    cur.execute(
+                        "INSERT INTO match_players (match_id, player_id, team) VALUES (%s, %s, 1);",
+                        (match_id, pid)
+                    )
+            # Team2
+            for pid in match.team2_ids:
+                if pid is not None:
+                    cur.execute(
+                        "INSERT INTO match_players (match_id, player_id, team) VALUES (%s, %s, 2);",
+                        (match_id, pid)
+                    )
 
-        # Elo & Ränge über DB-Funktion aktualisieren
-        cur.execute("SELECT process_match(%s);", (match_id,))
+            # Elo & Ränge aktualisieren
+            cur.execute("SELECT process_match(%s);", (match_id,))
+            # Spieler-Ränge aktualisieren
+            cur.execute("""
+                UPDATE players p
+                SET rank_id = r.id
+                FROM ranks r
+                WHERE r.min_elo = (
+                    SELECT MAX(min_elo) FROM ranks WHERE min_elo <= p.elo
+                );
+            """)
+            conn.commit()
 
-        # Spieler-Ränge aktualisieren
-        cur.execute("""
-            UPDATE players p
-            SET rank_id = r.id
-            FROM ranks r
-            WHERE p.elo >= r.min_elo
-            AND r.min_elo = (
-                SELECT MAX(min_elo)
-                FROM ranks
-                WHERE min_elo <= p.elo
-            );
-        """)
-        conn.commit()
-    conn.close()
-    return {"match_id": match_id, "message": "Match erfolgreich eingetragen!"}
+        return {"match_id": match_id, "message": "Match erfolgreich eingetragen"}
+    finally:
+        conn.close()
