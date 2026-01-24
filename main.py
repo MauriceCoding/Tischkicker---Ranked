@@ -5,6 +5,7 @@ import psycopg2
 from psycopg2.extras import RealDictCursor
 from pydantic import BaseModel
 from typing import List, Optional
+from uuid import UUID
 
 app = FastAPI()
 
@@ -40,11 +41,11 @@ class PlayerCreate(BaseModel):
     name: str
 
 class MatchCreate(BaseModel):
-    team1_ids: List[int]
-    team2_ids: List[int]
+    team1_ids: list[UUID]
+    team2_ids: list[UUID]
     score_team1: int
     score_team2: int
-    mode: Optional[str] = "solo"
+    mode: str = "solo"
 
 # --- Spieler abrufen ---
 @app.get("/api/players")
@@ -104,61 +105,88 @@ def add_player(player: PlayerCreate):
         conn.close()
 
 # --- Match eintragen ---
+from uuid import UUID
+from fastapi import HTTPException
+
 @app.post("/api/matches")
 def add_match(match: MatchCreate):
+
     # --- Validierung ---
     if not match.team1_ids or not match.team2_ids:
-        raise HTTPException(status_code=400, detail="Beide Teams brauchen mindestens einen Spieler")
+        raise HTTPException(
+            status_code=400,
+            detail="Beide Teams brauchen mindestens einen Spieler"
+        )
 
     if set(match.team1_ids) & set(match.team2_ids):
-        raise HTTPException(status_code=400, detail="Ein Spieler kann nicht in beiden Teams sein")
+        raise HTTPException(
+            status_code=400,
+            detail="Ein Spieler kann nicht in beiden Teams sein"
+        )
 
     conn = get_db_connection()
+
     try:
         with conn.cursor() as cur:
-            # Match anlegen
+
+            # --- Match anlegen ---
             cur.execute("""
                 INSERT INTO matches (mode, score_team1, score_team2, processed)
                 VALUES (%s, %s, %s, FALSE)
                 RETURNING id;
-            """, (match.mode, match.score_team1, match.score_team2))
+            """, (
+                match.mode,
+                match.score_team1,
+                match.score_team2
+            ))
 
             match_id = cur.fetchone()["id"]
 
-            # Team 1
+            # --- Spieler zuordnen ---
             for pid in match.team1_ids:
-                cur.execute(
-                    "INSERT INTO match_players (match_id, player_id, team) VALUES (%s, %s, 1)",
-                    (match_id, pid)
-                )
+                cur.execute("""
+                    INSERT INTO match_players (match_id, player_id, team)
+                    VALUES (%s, %s, 1);
+                """, (match_id, pid))
 
-            # Team 2
             for pid in match.team2_ids:
-                cur.execute(
-                    "INSERT INTO match_players (match_id, player_id, team) VALUES (%s, %s, 2)",
-                    (match_id, pid)
-                )
+                cur.execute("""
+                    INSERT INTO match_players (match_id, player_id, team)
+                    VALUES (%s, %s, 2);
+                """, (match_id, pid))
 
-            # Match verarbeiten (Elo etc.)
+            # --- Match verarbeiten (Elo, Wins, Losses) ---
             cur.execute("SELECT process_match(%s);", (match_id,))
 
-            # Ränge aktualisieren
+            # --- Ränge NUR für beteiligte Spieler aktualisieren ---
             cur.execute("""
                 UPDATE players p
                 SET rank_id = r.id
                 FROM ranks r
-                WHERE r.min_elo = (
+                WHERE p.id IN (
+                    SELECT player_id
+                    FROM match_players
+                    WHERE match_id = %s
+                )
+                AND r.min_elo = (
                     SELECT MAX(min_elo)
                     FROM ranks
                     WHERE min_elo <= p.elo
                 );
-            """)
+            """, (match_id,))
+
+            # --- Match als verarbeitet markieren ---
+            cur.execute("""
+                UPDATE matches
+                SET processed = TRUE
+                WHERE id = %s;
+            """, (match_id,))
 
             conn.commit()
 
         return {
             "match_id": match_id,
-            "message": "Match erfolgreich gespeichert"
+            "message": "Match erfolgreich gespeichert und verarbeitet"
         }
 
     except Exception as e:
@@ -167,3 +195,4 @@ def add_match(match: MatchCreate):
 
     finally:
         conn.close()
+
