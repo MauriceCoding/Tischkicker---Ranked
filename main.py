@@ -82,8 +82,9 @@ def root():
 
 @app.get("/api/players")
 def get_players():
-    conn = get_db_connection()
+    conn = None
     try:
+        conn = get_db_connection()
         with conn.cursor() as cur:
             cur.execute("""
                 SELECT id, name, elo, rank_name, wins, losses
@@ -103,8 +104,14 @@ def get_players():
             }
             for r in rows
         ]
+
+    except Exception as e:
+        # DEBUG: komplette Exception zurückgeben
+        return {"error": str(e), "trace": traceback.format_exc()}
+
     finally:
-        conn.close()
+        if conn:
+            conn.close()
 
 @app.get("/api/leaderboard")
 def get_leaderboard():
