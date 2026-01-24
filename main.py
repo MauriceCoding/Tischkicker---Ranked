@@ -65,3 +65,25 @@ def add_match(team1_ids: list[int], team2_ids: list[int], score_team1: int, scor
         """)
         conn.commit()
     return {"match_id": match_id, "message": "Match erfolgreich eingetragen"}
+
+# --- Endpoint: neuen Spieler hinzufügen ---
+@app.post("/api/players")
+def add_player(name: str):
+    with conn.cursor() as cur:
+        cur.execute("INSERT INTO players (name, elo, wins, losses) VALUES (%s, 1000, 0, 0) RETURNING id;", (name,))
+        player_id = cur.fetchone()['id']
+        # optional: direkt den Rang setzen
+        cur.execute("""
+            UPDATE players p
+            SET rank_id = r.id
+            FROM ranks r
+            WHERE p.id = %s AND p.elo >= r.min_elo
+            AND r.min_elo = (
+                SELECT MAX(min_elo)
+                FROM ranks
+                WHERE min_elo <= p.elo
+            );
+        """, (player_id,))
+        conn.commit()
+    return {"player_id": player_id, "name": name, "message": "Spieler erfolgreich hinzugefügt"}
+
