@@ -15,7 +15,8 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 
 # --- CORS Setup ---
 origins = [
-    "https://tischkicker-admin.onrender.com",  # deine Admin-Seite
+    "https://tischkicker-admin.onrender.com", # deine Admin-Seite
+    "https://tischkicker-leaderboard.onrender.com", # leaderboard-Seite
 ]
 
 app.add_middleware(
