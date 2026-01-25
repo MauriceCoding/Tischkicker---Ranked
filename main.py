@@ -6,8 +6,12 @@ from psycopg2.extras import RealDictCursor
 from pydantic import BaseModel
 from typing import List, Optional
 from uuid import UUID
+from fastapi.staticfiles import StaticFiles
+
 
 app = FastAPI()
+
+app.mount("/static", StaticFiles(directory="static"), name="static")
 
 # --- CORS Setup ---
 origins = [
